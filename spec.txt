@@ -1,0 +1,19 @@
+software synth
+
+Project Summary
+This project is the creation of a software synth and realtime GUI. The base system should have minimal controls, volume perhaps, but modules can be added
+for individual effects. One might add an EQ module, a special type of synth module, a distortion module, etc. Each module would have defined controls that module's control box on the 
+main interfdace when installed. output could be routed to DAWs or other receivers using tools like Loopback or Jackd. input should by either line in, mic or midi keyboard.
+Modules can be installed by dropping self-containg folder into a directory called modules.
+
+tech stack
+1. locally installed application on macos arm64
+2. language - open for recommendations
+3. dependencies to a minimum - but lets discuss
+4. will be opensource project
+
+Who am I? I am a very experienced software engineer
+
+
+Approach - ask me questions one at a time to arrive at a base system that will run. then, we will build our first module and iterate from there.
+

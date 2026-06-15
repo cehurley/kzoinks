@@ -1,0 +1,17 @@
+# Build output
+build/
+
+# Claude Code local config
+.claude/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.xcodeproj/
+*.xcworkspace/
+
+# CMake user files
+CMakeUserPresets.json
