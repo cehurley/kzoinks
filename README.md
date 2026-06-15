@@ -1,3 +1,3 @@
 # KZoinks
 
-jJust getting started, please stand by.
+Just getting started, please stand by.
