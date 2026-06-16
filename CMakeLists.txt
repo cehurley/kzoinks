@@ -27,6 +27,7 @@ target_sources(Synth PRIVATE
     Source/ChainStrip.cpp
     Source/ModuleRegistry.cpp
     Source/SynthVoice.cpp
+    Source/OutputPanel.cpp
 )
 
 # Source/ is on the include path so modules can include IModule.h, SynthParameters.h, etc.
@@ -55,6 +56,14 @@ target_link_libraries(Synth PRIVATE
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
+)
+
+juce_add_binary_data(AppAssets NAMESPACE AppAssets HEADER_NAME AppAssetData.h SOURCES
+    Source/assets/skull.png
+)
+target_link_libraries(Synth PRIVATE AppAssets)
+target_include_directories(Synth PRIVATE
+    $<TARGET_PROPERTY:AppAssets,INTERFACE_INCLUDE_DIRECTORIES>
 )
 
 # Auto-discover modules: any subdirectory of modules/ with a CMakeLists.txt is included.
