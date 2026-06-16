@@ -1,5 +1,6 @@
 #include "DistortionModule.h"
 #include "ModuleRegistry.h"
+#include <DistortionData.h>
 
 // ---- waveshapers -----------------------------------------------------------
 
@@ -78,6 +79,44 @@ void DistortionModule::processBlock(juce::AudioBuffer<float>& buffer,
 namespace
 {
 
+class KnobLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    KnobLookAndFeel()
+    {
+        knobImage = juce::ImageCache::getFromMemory(DistortionAssets::knob_png,
+                                                    DistortionAssets::knob_pngSize);
+    }
+
+    void drawRotarySlider(juce::Graphics& g,
+                          int x, int y, int width, int height,
+                          float sliderPos,
+                          float rotaryStartAngle, float rotaryEndAngle,
+                          juce::Slider&) override
+    {
+        if (!knobImage.isValid()) return;
+
+        const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+        const float size  = (float)juce::jmin(width, height);
+        const float cx    = (float)x + (float)width  * 0.5f;
+        const float cy    = (float)y + (float)height * 0.5f;
+
+        const float scale = size / (float)knobImage.getWidth();
+
+        juce::AffineTransform t =
+            juce::AffineTransform::translation(-(float)knobImage.getWidth()  * 0.5f,
+                                               -(float)knobImage.getHeight() * 0.5f)
+                                 .rotated(angle)
+                                 .scaled(scale)
+                                 .translated(cx, cy);
+
+        g.drawImageTransformed(knobImage, t, false);
+    }
+
+private:
+    juce::Image knobImage;
+};
+
 // Draws the waveshaper transfer function (input X → output Y) for the current
 // type and drive.  Repaints whenever any parameter changes.
 class CurveDisplay : public juce::Component
@@ -139,6 +178,7 @@ public:
     {
         // Type selector
         typeBox.addItem("Overdrive",  1);
+
         typeBox.addItem("Distortion", 2);
         typeBox.addItem("Fuzz",       3);
         typeBox.addItem("Fold",       4);
@@ -171,6 +211,9 @@ public:
         setupKnob(toneKnob,  toneLabel,  "Tone",  0.0,  1.0,  module.tone .load());
         setupKnob(mixKnob,   mixLabel,   "Mix",   0.0,  1.0,  module.mix  .load());
         setupKnob(levelKnob, levelLabel, "Level", 0.0,  1.0,  module.level.load());
+
+        for (auto* s : { &driveKnob, &toneKnob, &mixKnob, &levelKnob })
+            s->setLookAndFeel(&knobLook);
 
         driveKnob.setSkewFactorFromMidPoint(5.0);
 
@@ -228,10 +271,17 @@ public:
         curve.setBounds(area);
     }
 
+    ~DistortionEditor() override
+    {
+        for (auto* s : { &driveKnob, &toneKnob, &mixKnob, &levelKnob })
+            s->setLookAndFeel(nullptr);
+    }
+
 private:
     DistortionModule& module;
 
-    juce::ComboBox typeBox;
+    KnobLookAndFeel  knobLook;
+    juce::ComboBox   typeBox;
 
     juce::Slider driveKnob, toneKnob, mixKnob, levelKnob;
     juce::Label  driveLabel, toneLabel, mixLabel, levelLabel;

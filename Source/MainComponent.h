@@ -4,6 +4,7 @@
 #include "IModule.h"
 #include "ChainStrip.h"
 #include "ModuleWindow.h"
+#include "OutputPanel.h"
 
 // Fixes two focus-related MIDI issues:
 //
@@ -85,6 +86,7 @@ public:
     void saveCurrentSetup();          // re-saves currentSetupName
     void saveSetupAs(const juce::String& name);
     void loadSetup  (const juce::String& name);
+    void exportSetups();
 
     // Creates the SetupMenuModel and registers it; call once after construction.
     juce::MenuBarModel* createMenuModel();
@@ -98,12 +100,24 @@ private:
 
     juce::Slider volumeSlider;
     juce::Label  volumeLabel;
+    juce::Image  skullImage;
+    juce::Rectangle<int> skullBounds;
+
+    juce::TextButton octaveDownBtn { "-" };
+    juce::TextButton octaveUpBtn   { "+" };
+    juce::Label      octaveLabel;
+    int              keyboardOctave { 5 };
 
     std::vector<std::unique_ptr<IModule>>       modules;
     std::vector<std::unique_ptr<ModuleWindow>>  moduleWindows;
     ChainStrip                                  chainStrip;
 
+    std::atomic<float> vuLeft  { 0.0f };
+    std::atomic<float> vuRight { 0.0f };
+    OutputPanel        outputPanel { deviceManager, vuLeft, vuRight };
+
     std::unique_ptr<juce::MenuBarModel> menuModel;
+    std::unique_ptr<juce::FileChooser>  fileChooser;
 
     juce::LookAndFeel_V4 darkLook;
 

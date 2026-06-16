@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include "ModuleRegistry.h"
 #include "AppState.h"
+#include <AppAssetData.h>
 
 // ---- Menu bar model --------------------------------------------------------
 
@@ -26,6 +27,9 @@ public:
             menu.addItem(2, "Save Setup",
                          main.currentSetupName.isNotEmpty(),
                          false);
+            menu.addItem(3, "Export Setups...",
+                         !main.getSetupNames().isEmpty(),
+                         false);
             menu.addSeparator();
 
             const auto names = main.getSetupNames();
@@ -47,6 +51,7 @@ public:
     {
         if      (id == 1)   main.showNewSetupDialog();
         else if (id == 2)   main.saveCurrentSetup();
+        else if (id == 3)   main.exportSetups();
         else if (id >= 100) main.loadSetup(main.getSetupNames()[id - 100]);
     }
 
@@ -66,6 +71,9 @@ MainComponent::MainComponent()
     darkLook.setColourScheme(juce::LookAndFeel_V4::getDarkColourScheme());
     setLookAndFeel(&darkLook);
 
+    skullImage = juce::ImageCache::getFromMemory(AppAssets::skull_png,
+                                                  AppAssets::skull_pngSize);
+
     addAndMakeVisible(volumeSlider);
     volumeSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
     volumeSlider.setRange(0.0, 1.0);
@@ -78,6 +86,26 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(keyboard);
     keyboard.setAvailableRange(36, 96);
+    keyboard.setKeyPressBaseOctave(keyboardOctave);
+
+    octaveLabel.setText("Oct " + juce::String(keyboardOctave), juce::dontSendNotification);
+    octaveLabel.setJustificationType(juce::Justification::centred);
+    octaveLabel.setFont(juce::Font(11.0f));
+    addAndMakeVisible(octaveLabel);
+
+    auto shiftOctave = [this](int delta)
+    {
+        keyboardOctave = juce::jlimit(0, 10, keyboardOctave + delta);
+        keyboard.setKeyPressBaseOctave(keyboardOctave);
+        octaveLabel.setText("Oct " + juce::String(keyboardOctave), juce::dontSendNotification);
+        octaveDownBtn.setEnabled(keyboardOctave > 0);
+        octaveUpBtn  .setEnabled(keyboardOctave < 10);
+    };
+
+    octaveDownBtn.onClick = [shiftOctave] { shiftOctave(-1); };
+    octaveUpBtn  .onClick = [shiftOctave] { shiftOctave(+1); };
+    addAndMakeVisible(octaveDownBtn);
+    addAndMakeVisible(octaveUpBtn);
 
     // Instantiate modules and open each one in its own floating window
     modules = ModuleRegistry::getInstance().createAll(synthEngine.params);
@@ -105,14 +133,18 @@ MainComponent::MainComponent()
 
     buildChainStrip();
 
-    // Restore saved window positions (keyed by module name, survives reorder)
+    // Restore saved window positions and visibility (keyed by module name, survives reorder)
     if (auto* props = getAppProperties())
     {
         for (size_t i = 0; i < moduleWindows.size(); ++i)
         {
-            auto state = props->getValue("moduleWindow_" + modules[i]->getName());
+            const auto key = modules[i]->getName();
+            auto state = props->getValue("moduleWindow_" + key);
             if (state.isNotEmpty())
                 moduleWindows[i]->restoreWindowStateFromString(state);
+
+            const bool visible = props->getBoolValue("moduleWindow_" + key + "_visible", true);
+            moduleWindows[i]->setVisible(visible);
         }
     }
 
@@ -148,10 +180,11 @@ MainComponent::MainComponent()
     };
 
     addAndMakeVisible(chainStrip);
+    addAndMakeVisible(outputPanel);
 
     juce::Desktop::getInstance().addFocusChangeListener(this);
 
-    setSize(720, 260);
+    setSize(860, 300);
     setAudioChannels(0, 2);
 
     for (auto& dev : juce::MidiInput::getAvailableDevices())
@@ -163,12 +196,17 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
-    // Save each module window's position/size before teardown
+    // Save each module window's position, size, and visibility before teardown
     if (auto* props = getAppProperties())
     {
         for (size_t i = 0; i < moduleWindows.size(); ++i)
-            props->setValue("moduleWindow_" + modules[i]->getName(),
+        {
+            const auto key = modules[i]->getName();
+            props->setValue("moduleWindow_" + key,
                             moduleWindows[i]->getWindowStateAsString());
+            props->setValue("moduleWindow_" + key + "_visible",
+                            moduleWindows[i]->isVisible());
+        }
         props->saveIfNeeded();
     }
 
@@ -217,6 +255,14 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& info)
 
     info.buffer->applyGain(info.startSample, info.numSamples,
                            (float)volumeSlider.getValue());
+
+    // Feed VU meter — peak over block, with decay so meter falls between frames
+    const int   nCh  = info.buffer->getNumChannels();
+    float pkL = 0.0f, pkR = 0.0f;
+    if (nCh > 0) pkL = info.buffer->getMagnitude(0, info.startSample, info.numSamples);
+    if (nCh > 1) pkR = info.buffer->getMagnitude(1, info.startSample, info.numSamples);
+    vuLeft .store(std::max(pkL, vuLeft .load() * 0.92f));
+    vuRight.store(std::max(pkR, vuRight.load() * 0.92f));
 }
 
 void MainComponent::releaseResources() {}
@@ -224,20 +270,42 @@ void MainComponent::releaseResources() {}
 void MainComponent::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xff1a1a2e));
+
+    if (skullImage.isValid() && !skullBounds.isEmpty())
+        g.drawImageWithin(skullImage,
+                          skullBounds.getX(), skullBounds.getY(),
+                          skullBounds.getWidth(), skullBounds.getHeight(),
+                          juce::RectanglePlacement::centred |
+                          juce::RectanglePlacement::onlyReduceInSize);
 }
 
 void MainComponent::resized()
 {
     auto area = getLocalBounds().reduced(12);
 
-    keyboard.setBounds(area.removeFromBottom(110));
+    auto keyboardArea = area.removeFromBottom(110);
+
+    // Octave shift controls sit in the top-left corner of the keyboard area
+    auto octaveRow = keyboardArea.removeFromTop(20);
+    octaveDownBtn.setBounds(octaveRow.removeFromLeft(24));
+    octaveLabel  .setBounds(octaveRow.removeFromLeft(44));
+    octaveUpBtn  .setBounds(octaveRow.removeFromLeft(24));
+
+    keyboard.setBounds(keyboardArea);
     area.removeFromBottom(8);
 
-    auto knobArea = area.removeFromRight(90);
-    volumeLabel.setBounds(knobArea.removeFromTop(20));
-    volumeSlider.setBounds(knobArea);
-
+    // Output panel — right edge
+    auto outputArea = area.removeFromRight(160);
+    outputPanel.setBounds(outputArea);
     area.removeFromRight(8);
+
+    // Volume knob + skull image
+    auto knobArea = area.removeFromRight(90);
+    volumeLabel .setBounds(knobArea.removeFromTop(20));
+    volumeSlider.setBounds(knobArea.removeFromTop(80));
+    skullBounds = knobArea; // skull fills remaining space below knob
+    area.removeFromRight(8);
+
     chainStrip.setBounds(area);
 }
 
@@ -364,6 +432,79 @@ void MainComponent::loadSetup(const juce::String& name)
 
     if (menuModel)
         menuModel->menuItemsChanged();
+}
+
+void MainComponent::exportSetups()
+{
+    auto* props = getAppProperties();
+    if (!props) return;
+
+    const auto names = getSetupNames();
+    if (names.isEmpty()) return;
+
+    // Build JSON: { "version": 1, "current": "...", "setups": [...] }
+    auto setupsArray = juce::Array<juce::var>();
+
+    for (const auto& name : names)
+    {
+        auto xmlStr = props->getValue("setup." + name);
+        auto root   = juce::XmlDocument::parse(xmlStr);
+        if (!root) continue;
+
+        auto modulesArray = juce::Array<juce::var>();
+
+        for (auto* entry : root->getChildIterator())
+        {
+            auto moduleObj = std::make_unique<juce::DynamicObject>();
+            moduleObj->setProperty("name",    entry->getStringAttribute("name"));
+            moduleObj->setProperty("enabled", entry->getBoolAttribute("enabled", true));
+
+            for (int i = 0; i < entry->getNumAttributes(); ++i)
+            {
+                const auto attrName = entry->getAttributeName(i);
+                if (attrName == "name" || attrName == "enabled") continue;
+
+                const auto val = entry->getAttributeValue(i);
+                // Store as number if parseable, otherwise string
+                if (val.containsOnly("0123456789.-"))
+                    moduleObj->setProperty(attrName, val.getDoubleValue());
+                else
+                    moduleObj->setProperty(attrName, val);
+            }
+
+            modulesArray.add(moduleObj.release());
+        }
+
+        auto setupObj = std::make_unique<juce::DynamicObject>();
+        setupObj->setProperty("name",    name);
+        setupObj->setProperty("modules", modulesArray);
+        setupsArray.add(setupObj.release());
+    }
+
+    auto root = std::make_unique<juce::DynamicObject>();
+    root->setProperty("version", 1);
+    root->setProperty("current", currentSetupName);
+    root->setProperty("setups",  setupsArray);
+
+    const juce::String json = juce::JSON::toString(juce::var(root.release()), true);
+
+    // File save dialog
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Export Setups",
+        juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+            .getChildFile("kzoinks-setups.json"),
+        "*.json");
+
+    fileChooser->launchAsync(
+        juce::FileBrowserComponent::saveMode |
+        juce::FileBrowserComponent::canSelectFiles |
+        juce::FileBrowserComponent::warnAboutOverwriting,
+        [json](const juce::FileChooser& fc)
+        {
+            auto file = fc.getResult();
+            if (file == juce::File{}) return;
+            file.replaceWithText(json);
+        });
 }
 
 juce::MenuBarModel* MainComponent::createMenuModel()
