@@ -99,6 +99,11 @@ private:
     juce::Slider volumeSlider;
     juce::Label  volumeLabel;
 
+    juce::TextButton octaveDownBtn { "-" };
+    juce::TextButton octaveUpBtn   { "+" };
+    juce::Label      octaveLabel;
+    int              keyboardOctave { 5 };
+
     std::vector<std::unique_ptr<IModule>>       modules;
     std::vector<std::unique_ptr<ModuleWindow>>  moduleWindows;
     ChainStrip                                  chainStrip;

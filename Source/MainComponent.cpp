@@ -78,6 +78,26 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(keyboard);
     keyboard.setAvailableRange(36, 96);
+    keyboard.setKeyPressBaseOctave(keyboardOctave);
+
+    octaveLabel.setText("Oct " + juce::String(keyboardOctave), juce::dontSendNotification);
+    octaveLabel.setJustificationType(juce::Justification::centred);
+    octaveLabel.setFont(juce::Font(11.0f));
+    addAndMakeVisible(octaveLabel);
+
+    auto shiftOctave = [this](int delta)
+    {
+        keyboardOctave = juce::jlimit(0, 10, keyboardOctave + delta);
+        keyboard.setKeyPressBaseOctave(keyboardOctave);
+        octaveLabel.setText("Oct " + juce::String(keyboardOctave), juce::dontSendNotification);
+        octaveDownBtn.setEnabled(keyboardOctave > 0);
+        octaveUpBtn  .setEnabled(keyboardOctave < 10);
+    };
+
+    octaveDownBtn.onClick = [shiftOctave] { shiftOctave(-1); };
+    octaveUpBtn  .onClick = [shiftOctave] { shiftOctave(+1); };
+    addAndMakeVisible(octaveDownBtn);
+    addAndMakeVisible(octaveUpBtn);
 
     // Instantiate modules and open each one in its own floating window
     modules = ModuleRegistry::getInstance().createAll(synthEngine.params);
@@ -230,7 +250,15 @@ void MainComponent::resized()
 {
     auto area = getLocalBounds().reduced(12);
 
-    keyboard.setBounds(area.removeFromBottom(110));
+    auto keyboardArea = area.removeFromBottom(110);
+
+    // Octave shift controls sit in the top-left corner of the keyboard area
+    auto octaveRow = keyboardArea.removeFromTop(20);
+    octaveDownBtn.setBounds(octaveRow.removeFromLeft(24));
+    octaveLabel  .setBounds(octaveRow.removeFromLeft(44));
+    octaveUpBtn  .setBounds(octaveRow.removeFromLeft(24));
+
+    keyboard.setBounds(keyboardArea);
     area.removeFromBottom(8);
 
     auto knobArea = area.removeFromRight(90);

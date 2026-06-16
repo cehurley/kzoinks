@@ -1,24 +1,66 @@
 #include "SynthBaseModule.h"
 #include "ModuleRegistry.h"
+#include <SynthBaseData.h>
 
 // ---- Editor ----------------------------------------------------------------
 
 namespace
 {
 
+class KnobLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    KnobLookAndFeel()
+    {
+        knobImage = juce::ImageCache::getFromMemory(SynthBaseAssets::knob_png,
+                                                    SynthBaseAssets::knob_pngSize);
+    }
+
+    void drawRotarySlider(juce::Graphics& g,
+                          int x, int y, int width, int height,
+                          float sliderPos,
+                          float rotaryStartAngle, float rotaryEndAngle,
+                          juce::Slider&) override
+    {
+        if (!knobImage.isValid()) return;
+
+        const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+        const float size  = (float)juce::jmin(width, height);
+        const float cx    = (float)x + (float)width  * 0.5f;
+        const float cy    = (float)y + (float)height * 0.5f;
+        const float scale = size / (float)knobImage.getWidth();
+
+        juce::AffineTransform t =
+            juce::AffineTransform::translation(-(float)knobImage.getWidth()  * 0.5f,
+                                               -(float)knobImage.getHeight() * 0.5f)
+                                 .rotated(angle)
+                                 .scaled(scale)
+                                 .translated(cx, cy);
+
+        g.drawImageTransformed(knobImage, t, false);
+    }
+
+private:
+    juce::Image knobImage;
+};
+
 struct Knob
 {
     juce::Slider slider;
     juce::Label  label;
 
+    ~Knob() { slider.setLookAndFeel(nullptr); }
+
     void setup(juce::Component& parent, const juce::String& name,
-               double lo, double hi, double val, int decimals = 2)
+               double lo, double hi, double val, int decimals,
+               juce::LookAndFeel* laf)
     {
         slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
         slider.setRange(lo, hi);
         slider.setValue(val, juce::dontSendNotification);
         slider.setNumDecimalPlacesToDisplay(decimals);
         slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 56, 14);
+        if (laf) slider.setLookAndFeel(laf);
         parent.addAndMakeVisible(slider);
 
         label.setText(name, juce::dontSendNotification);
@@ -39,6 +81,7 @@ class SynthBaseEditor : public juce::Component
 public:
     explicit SynthBaseEditor(SynthParameters& p) : params(p)
     {
+        auto* laf = &knobLook;
         waveformBox.addItem("Saw",    1);
         waveformBox.addItem("Square", 2);
         waveformBox.addItem("Sine",   3);
@@ -53,21 +96,21 @@ public:
         waveLabel.setFont(juce::Font(10.0f));
         addAndMakeVisible(waveLabel);
 
-        osc2Detune.setup(*this, "Detune",   -50.0, 50.0,    params.detune.load(),        1);
-        dirt      .setup(*this, "Dirt",       0.0,  1.0,    params.dirt.load(),          2);
-        cutoff    .setup(*this, "Cutoff",    80.0, 18000.0, params.filterCutoff.load(),  0);
-        resonance .setup(*this, "Res",        0.1,  4.0,    params.filterRes.load(),     2);
-        envAmt    .setup(*this, "Env Amt",    0.0,  1.0,    params.filterEnvAmt.load(),  2);
+        osc2Detune.setup(*this, "Detune",   -50.0, 50.0,    params.detune.load(),        1, laf);
+        dirt      .setup(*this, "Dirt",       0.0,  1.0,    params.dirt.load(),          2, laf);
+        cutoff    .setup(*this, "Cutoff",    80.0, 18000.0, params.filterCutoff.load(),  0, laf);
+        resonance .setup(*this, "Res",        0.1,  4.0,    params.filterRes.load(),     2, laf);
+        envAmt    .setup(*this, "Env Amt",    0.0,  1.0,    params.filterEnvAmt.load(),  2, laf);
 
-        ampA.setup(*this, "A",  0.001, 4.0, params.ampAttack.load(),   3);
-        ampD.setup(*this, "D",  0.001, 4.0, params.ampDecay.load(),    3);
-        ampS.setup(*this, "S",  0.0,   1.0, params.ampSustain.load(),  2);
-        ampR.setup(*this, "R",  0.001, 8.0, params.ampRelease.load(),  3);
+        ampA.setup(*this, "A",  0.001, 4.0, params.ampAttack.load(),   3, laf);
+        ampD.setup(*this, "D",  0.001, 4.0, params.ampDecay.load(),    3, laf);
+        ampS.setup(*this, "S",  0.0,   1.0, params.ampSustain.load(),  2, laf);
+        ampR.setup(*this, "R",  0.001, 8.0, params.ampRelease.load(),  3, laf);
 
-        filtA.setup(*this, "A",  0.001, 4.0, params.filtAttack.load(),  3);
-        filtD.setup(*this, "D",  0.001, 4.0, params.filtDecay.load(),   3);
-        filtS.setup(*this, "S",  0.0,   1.0, params.filtSustain.load(), 2);
-        filtR.setup(*this, "R",  0.001, 8.0, params.filtRelease.load(), 3);
+        filtA.setup(*this, "A",  0.001, 4.0, params.filtAttack.load(),  3, laf);
+        filtD.setup(*this, "D",  0.001, 4.0, params.filtDecay.load(),   3, laf);
+        filtS.setup(*this, "S",  0.0,   1.0, params.filtSustain.load(), 2, laf);
+        filtR.setup(*this, "R",  0.001, 8.0, params.filtRelease.load(), 3, laf);
 
         cutoff.slider.setSkewFactorFromMidPoint(1000.0);
 
@@ -158,6 +201,8 @@ public:
 
 private:
     SynthParameters& params;
+
+    KnobLookAndFeel knobLook;
 
     juce::ComboBox waveformBox;
     juce::Label    waveLabel;
