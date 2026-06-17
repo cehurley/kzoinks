@@ -1,4 +1,5 @@
 <img width="200" height="200" alt="Copilot_20260616_220228" src="https://github.com/user-attachments/assets/bf1bc0b8-0e4b-4a00-bb09-19aeb356dce0" />
+
 # KZoinks
 
 A macOS standalone subtractive synthesizer built in C++ with JUCE. Features two detuned PolyBLEP sawtooth oscillators, a Chamberlin state-variable filter, amp and filter ADSRs, and full MPE support. Designed to be extensible via a drop-in module system.
