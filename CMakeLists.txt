@@ -59,7 +59,7 @@ target_link_libraries(Synth PRIVATE
 )
 
 juce_add_binary_data(AppAssets NAMESPACE AppAssets HEADER_NAME AppAssetData.h SOURCES
-    Source/assets/skull.png
+    Source/assets/kzoinks.png
 )
 target_link_libraries(Synth PRIVATE AppAssets)
 target_include_directories(Synth PRIVATE

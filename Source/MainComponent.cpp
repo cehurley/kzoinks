@@ -71,8 +71,8 @@ MainComponent::MainComponent()
     darkLook.setColourScheme(juce::LookAndFeel_V4::getDarkColourScheme());
     setLookAndFeel(&darkLook);
 
-    skullImage = juce::ImageCache::getFromMemory(AppAssets::skull_png,
-                                                  AppAssets::skull_pngSize);
+    kzoinksImage = juce::ImageCache::getFromMemory(AppAssets::kzoinks_png,
+                                                  AppAssets::kzoinks_pngSize);
 
     addAndMakeVisible(volumeSlider);
     volumeSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
@@ -271,8 +271,8 @@ void MainComponent::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xff1a1a2e));
 
-    if (skullImage.isValid() && !skullBounds.isEmpty())
-        g.drawImageWithin(skullImage,
+    if (kzoinksImage.isValid() && !skullBounds.isEmpty())
+        g.drawImageWithin(kzoinksImage,
                           skullBounds.getX(), skullBounds.getY(),
                           skullBounds.getWidth(), skullBounds.getHeight(),
                           juce::RectanglePlacement::centred |

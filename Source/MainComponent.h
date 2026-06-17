@@ -100,7 +100,7 @@ private:
 
     juce::Slider volumeSlider;
     juce::Label  volumeLabel;
-    juce::Image  skullImage;
+    juce::Image  kzoinksImage;
     juce::Rectangle<int> skullBounds;
 
     juce::TextButton octaveDownBtn { "-" };
