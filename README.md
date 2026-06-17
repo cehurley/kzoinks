@@ -1,4 +1,5 @@
-<img width="200" height="200" alt="Copilot_20260616_220228" src="https://github.com/user-attachments/assets/bf1bc0b8-0e4b-4a00-bb09-19aeb356dce0" />
+<img width="400" height="266" alt="kzoinks" src="https://github.com/user-attachments/assets/725ff60e-fcd4-47cb-9eb7-b365474b55dc" />
+
 
 # KZoinks
 
