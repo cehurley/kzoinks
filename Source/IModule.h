@@ -16,6 +16,9 @@ public:
     // Returns a new editor component owned by the caller
     virtual std::unique_ptr<juce::Component> createEditor() = 0;
 
+    // Optional logo shown in the module window title bar instead of text
+    virtual juce::Image getLogo() const { return {}; }
+
     // Called before audio starts — store sample rate / reset state.
     virtual void prepareToPlay(double /*sampleRate*/, int /*samplesPerBlock*/) {}
 

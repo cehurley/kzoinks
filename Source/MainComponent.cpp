@@ -112,10 +112,11 @@ MainComponent::MainComponent()
     for (int i = 0; i < (int)modules.size(); ++i)
     {
         auto& m = modules[(size_t)i];
-        moduleWindows.push_back(
-            std::make_unique<ModuleWindow>(m->getName(),
-                                          m->createEditor(),
-                                          i));
+        auto win = std::make_unique<ModuleWindow>(m->getName(), m->createEditor(), i);
+        auto logo = m->getLogo();
+        if (logo.isValid())
+            win->setTitleLogo(logo);
+        moduleWindows.push_back(std::move(win));
     }
 
     // Build the chain strip from the current module order

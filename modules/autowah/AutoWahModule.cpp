@@ -131,13 +131,49 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WahDisplay)
 };
 
+class KnobLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    KnobLookAndFeel()
+    {
+        knobImage = juce::ImageCache::getFromMemory(
+            AutoWahAssets::fender_png, AutoWahAssets::fender_pngSize);
+    }
+
+    void drawRotarySlider(juce::Graphics& g,
+                          int x, int y, int width, int height,
+                          float sliderPos,
+                          float, float,
+                          juce::Slider&) override
+    {
+        if (!knobImage.isValid()) return;
+
+        const float angle = juce::MathConstants<float>::pi * 0.75f
+                            * (2.0f * sliderPos - 1.0f);
+
+        const int   size = juce::jmin(width, height);
+        const float cx   = (float)x + (float)width  * 0.5f;
+        const float cy   = (float)y + (float)height * 0.5f;
+
+        juce::Graphics::ScopedSaveState saved(g);
+        g.addTransform(juce::AffineTransform::rotation(angle, cx, cy));
+        g.drawImage(knobImage,
+                    (int)(cx - size * 0.5f), (int)(cy - size * 0.5f),
+                    size, size,
+                    0, 0, knobImage.getWidth(), knobImage.getHeight());
+    }
+
+private:
+    juce::Image knobImage;
+};
+
 class AutoWahEditor : public juce::Component
 {
 public:
     explicit AutoWahEditor(AutoWahModule& m) : module(m), display(m)
     {
-        logoImage = juce::ImageCache::getFromMemory(
-            AutoWahAssets::autowahlogo_png, AutoWahAssets::autowahlogo_pngSize);
+        for (auto* s : { &sensKnob, &attKnob, &relKnob, &resoKnob, &baseKnob, &rangeKnob, &mixKnob })
+            s->setLookAndFeel(&knobLook);
         auto setup = [this](juce::Slider& s, juce::Label& l,
                             const juce::String& name,
                             double lo, double hi, double val,
@@ -179,21 +215,11 @@ public:
     void paint(juce::Graphics& g) override
     {
         g.fillAll(juce::Colour(0xff0d1a0d));
-
-        auto titleBar = getLocalBounds().removeFromTop(22);
-        g.setColour(juce::Colours::black);
-        g.fillRoundedRectangle(titleBar.toFloat(), 6.0f);
-        if (logoImage.isValid())
-            g.drawImageWithin(logoImage,
-                              titleBar.getX(), titleBar.getY(),
-                              titleBar.getWidth(), titleBar.getHeight(),
-                              juce::RectanglePlacement::centred | juce::RectanglePlacement::onlyReduceInSize);
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced(8);
-        area.removeFromTop(22 + 6);
 
         display.setBounds(area.removeFromBottom(36));
         area.removeFromBottom(6);
@@ -224,10 +250,16 @@ public:
         layoutKnob(row2, kw2, mixLabel,   mixKnob);
     }
 
+    ~AutoWahEditor() override
+    {
+        for (auto* s : { &sensKnob, &attKnob, &relKnob, &resoKnob, &baseKnob, &rangeKnob, &mixKnob })
+            s->setLookAndFeel(nullptr);
+    }
+
 private:
-    AutoWahModule& module;
-    WahDisplay     display;
-    juce::Image    logoImage;
+    KnobLookAndFeel knobLook;
+    AutoWahModule&  module;
+    WahDisplay      display;
 
     juce::Slider sensKnob, attKnob, relKnob, resoKnob, baseKnob, rangeKnob, mixKnob;
     juce::Label  sensLabel, attLabel, relLabel, resoLabel, baseLabel, rangeLabel, mixLabel;
@@ -240,6 +272,12 @@ private:
 std::unique_ptr<juce::Component> AutoWahModule::createEditor()
 {
     return std::make_unique<AutoWahEditor>(*this);
+}
+
+juce::Image AutoWahModule::getLogo() const
+{
+    return juce::ImageCache::getFromMemory(
+        AutoWahAssets::autowahlogo_png, AutoWahAssets::autowahlogo_pngSize);
 }
 
 // ---- Persistence -----------------------------------------------------------
