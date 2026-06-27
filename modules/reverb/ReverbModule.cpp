@@ -1,5 +1,6 @@
 #include "ReverbModule.h"
 #include "ModuleRegistry.h"
+#include <ReverbData.h>
 
 // ---- DSP -------------------------------------------------------------------
 
@@ -49,11 +50,50 @@ void ReverbModule::processBlock(juce::AudioBuffer<float>& buffer,
 namespace
 {
 
+class KnobLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    KnobLookAndFeel()
+    {
+        knobImage = juce::ImageCache::getFromMemory(
+            ReverbAssets::reverbknob_png, ReverbAssets::reverbknob_pngSize);
+    }
+
+    void drawRotarySlider(juce::Graphics& g,
+                          int x, int y, int width, int height,
+                          float sliderPos,
+                          float, float,
+                          juce::Slider&) override
+    {
+        if (!knobImage.isValid()) return;
+
+        const float angle = juce::MathConstants<float>::pi * 0.75f
+                            * (2.0f * sliderPos - 1.0f);
+
+        const int   size = juce::jmin(width, height);
+        const float cx   = (float)x + (float)width  * 0.5f;
+        const float cy   = (float)y + (float)height * 0.5f;
+
+        juce::Graphics::ScopedSaveState saved(g);
+        g.addTransform(juce::AffineTransform::rotation(angle, cx, cy));
+        g.drawImage(knobImage,
+                    (int)(cx - size * 0.5f), (int)(cy - size * 0.5f),
+                    size, size,
+                    0, 0, knobImage.getWidth(), knobImage.getHeight());
+    }
+
+private:
+    juce::Image knobImage;
+};
+
 class ReverbEditor : public juce::Component
 {
 public:
     explicit ReverbEditor(ReverbModule& m) : module(m)
     {
+        for (auto* s : { &roomKnob, &dampKnob, &widthKnob, &mixKnob })
+            s->setLookAndFeel(&knobLook);
+
         auto setup = [this](juce::Slider& s, juce::Label& l,
                             const juce::String& name,
                             double lo, double hi, double val)
@@ -145,8 +185,15 @@ public:
         layoutKnob(mixLabel,   mixKnob);
     }
 
+    ~ReverbEditor() override
+    {
+        for (auto* s : { &roomKnob, &dampKnob, &widthKnob, &mixKnob })
+            s->setLookAndFeel(nullptr);
+    }
+
 private:
-    ReverbModule& module;
+    KnobLookAndFeel knobLook;
+    ReverbModule&   module;
 
     juce::Slider roomKnob, dampKnob, widthKnob, mixKnob;
     juce::Label  roomLabel, dampLabel, widthLabel, mixLabel;
