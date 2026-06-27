@@ -247,11 +247,26 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& info)
     midiCollector.removeNextBlockOfMessages(midi, info.numSamples);
     keyboardState.processNextMidiBuffer(midi, info.startSample, info.numSamples, true);
 
-    synthEngine.renderNextBlock(*info.buffer, midi, info.startSample, info.numSamples);
+    // MPE lower zone: ch1 is the master channel — note-on/off sent there are ignored
+    // by MPESynthesiser. Remap legacy (non-MPE) note messages to ch2 so external
+    // keyboards not in MPE mode still trigger voices.
+    juce::MidiBuffer remapped;
+    for (auto meta : midi)
+    {
+        auto msg = meta.getMessage();
+        if (msg.getChannel() == 1 && (msg.isNoteOn() || msg.isNoteOff()))
+            msg = juce::MidiMessage(msg.getRawData()[0] | 0x01,
+                                   msg.getRawData()[1],
+                                   msg.getRawData()[2],
+                                   msg.getTimeStamp());
+        remapped.addEvent(msg, meta.samplePosition);
+    }
+
+    synthEngine.renderNextBlock(*info.buffer, remapped, info.startSample, info.numSamples);
 
     for (auto& m : modules)
         if (m->isEnabled())
-            m->processBlock(*info.buffer, midi, info.startSample, info.numSamples);
+            m->processBlock(*info.buffer, remapped, info.startSample, info.numSamples);
 
     info.buffer->applyGain(info.startSample, info.numSamples,
                            (float)volumeSlider.getValue());

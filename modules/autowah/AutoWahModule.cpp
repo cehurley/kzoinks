@@ -1,5 +1,6 @@
 #include "AutoWahModule.h"
 #include "ModuleRegistry.h"
+#include <AutoWahData.h>
 
 // ---- DSP -------------------------------------------------------------------
 
@@ -135,6 +136,8 @@ class AutoWahEditor : public juce::Component
 public:
     explicit AutoWahEditor(AutoWahModule& m) : module(m), display(m)
     {
+        logoImage = juce::ImageCache::getFromMemory(
+            AutoWahAssets::autowahlogo_png, AutoWahAssets::autowahlogo_pngSize);
         auto setup = [this](juce::Slider& s, juce::Label& l,
                             const juce::String& name,
                             double lo, double hi, double val,
@@ -178,11 +181,13 @@ public:
         g.fillAll(juce::Colour(0xff0d1a0d));
 
         auto titleBar = getLocalBounds().removeFromTop(22);
-        g.setColour(juce::Colour(0xff1a3a1a));
+        g.setColour(juce::Colours::black);
         g.fillRoundedRectangle(titleBar.toFloat(), 6.0f);
-        g.setColour(juce::Colour(0xff55ee77));
-        g.setFont(juce::Font(12.0f, juce::Font::bold));
-        g.drawText("AUTO-WAH", titleBar, juce::Justification::centred);
+        if (logoImage.isValid())
+            g.drawImageWithin(logoImage,
+                              titleBar.getX(), titleBar.getY(),
+                              titleBar.getWidth(), titleBar.getHeight(),
+                              juce::RectanglePlacement::centred | juce::RectanglePlacement::onlyReduceInSize);
     }
 
     void resized() override
@@ -222,6 +227,7 @@ public:
 private:
     AutoWahModule& module;
     WahDisplay     display;
+    juce::Image    logoImage;
 
     juce::Slider sensKnob, attKnob, relKnob, resoKnob, baseKnob, rangeKnob, mixKnob;
     juce::Label  sensLabel, attLabel, relLabel, resoLabel, baseLabel, rangeLabel, mixLabel;

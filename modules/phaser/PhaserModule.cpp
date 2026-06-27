@@ -100,7 +100,7 @@ public:
     {
         if (!knobImage.isValid()) return;
 
-        const float angle = juce::MathConstants<float>::pi * 1.25f
+        const float angle = juce::MathConstants<float>::pi * 0.75f
                             * (2.0f * sliderPos - 1.0f);
 
         const int size = juce::jmin(width, height);
