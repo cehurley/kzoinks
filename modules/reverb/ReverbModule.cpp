@@ -126,12 +126,12 @@ public:
     {
         g.fillAll(juce::Colour(0xff0d1117));
 
-        auto titleBar = getLocalBounds().removeFromTop(22);
-        g.setColour(juce::Colour(0xff1a2a3a));
-        g.fillRoundedRectangle(titleBar.toFloat(), 6.0f);
+        //auto titleBar = getLocalBounds().removeFromTop(22);
+        //g.setColour(juce::Colour(0xff1a2a3a));
+        //g.fillRoundedRectangle(titleBar.toFloat(), 6.0f);
         g.setColour(juce::Colour(0xff88ccff));
         g.setFont(juce::Font(12.0f, juce::Font::bold));
-        g.drawText("REVERB", titleBar, juce::Justification::centred);
+        // g.drawText("REVERB", titleBar, juce::Justification::centred);
 
         // Simple room shape illustration
         auto area = getLocalBounds().reduced(16);
@@ -206,6 +206,12 @@ private:
 std::unique_ptr<juce::Component> ReverbModule::createEditor()
 {
     return std::make_unique<ReverbEditor>(*this);
+}
+
+juce::Image ReverbModule::getLogo() const
+{
+    return juce::ImageCache::getFromMemory(
+        ReverbAssets::LABELLOGO_png, ReverbAssets::LABELLOGO_pngSize);
 }
 
 // ---- Persistence -----------------------------------------------------------

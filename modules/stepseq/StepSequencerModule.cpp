@@ -1,5 +1,6 @@
 #include "StepSequencerModule.h"
 #include "ModuleRegistry.h"
+#include "StepSeqData.h"
 
 // ---- DSP -------------------------------------------------------------------
 
@@ -113,6 +114,42 @@ void StepSequencerModule::processMidi(juce::MidiBuffer& midi,
 namespace
 {
 
+class KnobLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    KnobLookAndFeel()
+    {
+        knobImage = juce::ImageCache::getFromMemory(
+            StepSeqAssets::yellowknob_png, StepSeqAssets::yellowknob_pngSize);
+    }
+
+    void drawRotarySlider(juce::Graphics& g,
+                          int x, int y, int width, int height,
+                          float sliderPos,
+                          float /*startAngle*/, float /*endAngle*/,
+                          juce::Slider&) override
+    {
+        if (!knobImage.isValid()) return;
+
+        const float angle = juce::MathConstants<float>::pi * 0.75f
+                            * (2.0f * sliderPos - 1.0f);
+
+        const int size = juce::jmin(width, height);
+        const float cx = (float)x + (float)width  * 0.5f;
+        const float cy = (float)y + (float)height * 0.5f;
+
+        juce::Graphics::ScopedSaveState saved(g);
+        g.addTransform(juce::AffineTransform::rotation(angle, cx, cy));
+        g.drawImage(knobImage,
+                    (int)(cx - size * 0.5f), (int)(cy - size * 0.5f),
+                    size, size,
+                    0, 0, knobImage.getWidth(), knobImage.getHeight());
+    }
+
+private:
+    juce::Image knobImage;
+};
+
 juce::Colour stepColour(StepSequencerModule::StepState st)
 {
     switch (st)
@@ -188,6 +225,9 @@ public:
         clearBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1a1a2a));
         clearBtn.onClick = [this] { module.trigClear.store(true); };
         addAndMakeVisible(clearBtn);
+
+        for (auto* s : { &bpmKnob, &gateKnob })
+            s->setLookAndFeel(&knobLook);
 
         auto setupKnob = [this](juce::Slider& s, juce::Label& l,
                                 const juce::String& name,
@@ -284,6 +324,12 @@ public:
         }
     }
 
+    ~StepSeqEditor() override
+    {
+        for (auto* s : { &bpmKnob, &gateKnob })
+            s->setLookAndFeel(nullptr);
+    }
+
 private:
     void timerCallback() override
     {
@@ -291,6 +337,7 @@ private:
         for (auto& btn : stepButtons) btn->repaint();
     }
 
+    KnobLookAndFeel knobLook;   // must outlive knobs
     StepSequencerModule& module;
 
     std::vector<std::unique_ptr<StepButton>> stepButtons;

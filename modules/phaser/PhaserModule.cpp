@@ -229,14 +229,11 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(juce::Colour(0xff0d1117));
+        g.fillAll(juce::Colour(0xff8e00ff));
 
         auto titleBar = getLocalBounds().removeFromTop(22);
         g.setColour(juce::Colour(0xff1a1a3a));
         g.fillRoundedRectangle(titleBar.toFloat(), 6.0f);
-        g.setColour(juce::Colour(0xff88aaff));
-        g.setFont(juce::Font(12.0f, juce::Font::bold));
-        g.drawText("PHASER", titleBar, juce::Justification::centred);
     }
 
     void resized() override
@@ -298,6 +295,12 @@ private:
 std::unique_ptr<juce::Component> PhaserModule::createEditor()
 {
     return std::make_unique<PhaserEditor>(*this);
+}
+
+juce::Image PhaserModule::getLogo() const
+{
+    return juce::ImageCache::getFromMemory(
+        PhaserAssets::faceplatePhaser_png, PhaserAssets::faceplatePhaser_pngSize);
 }
 
 // ---- Persistence -----------------------------------------------------------

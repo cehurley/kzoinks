@@ -1,5 +1,6 @@
 #include "RingModModule.h"
 #include "ModuleRegistry.h"
+#include "RingModData.h"
 
 // ---- DSP -------------------------------------------------------------------
 
@@ -74,6 +75,44 @@ void RingModModule::processBlock(juce::AudioBuffer<float>& buffer,
 namespace
 {
 
+class KnobLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    KnobLookAndFeel()
+    {
+        knobImage = juce::ImageCache::getFromMemory(RingModAssets::lightblue_png,
+                                                    RingModAssets::lightblue_pngSize);
+    }
+
+    void drawRotarySlider(juce::Graphics& g,
+                          int x, int y, int width, int height,
+                          float sliderPos,
+                          float rotaryStartAngle, float rotaryEndAngle,
+                          juce::Slider&) override
+    {
+        if (!knobImage.isValid()) return;
+
+        const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+        const float size  = (float)juce::jmin(width, height);
+        const float cx    = (float)x + (float)width  * 0.5f;
+        const float cy    = (float)y + (float)height * 0.5f;
+
+        const float scale = size / (float)knobImage.getWidth();
+
+        juce::AffineTransform t =
+            juce::AffineTransform::translation(-(float)knobImage.getWidth()  * 0.5f,
+                                               -(float)knobImage.getHeight() * 0.5f)
+                                 .rotated(angle)
+                                 .scaled(scale)
+                                 .translated(cx, cy);
+
+        g.drawImageTransformed(knobImage, t, false);
+    }
+
+private:
+    juce::Image knobImage;
+};
+
 class CarrierDisplay : public juce::Component, private juce::Timer
 {
 public:
@@ -134,6 +173,9 @@ class RingModEditor : public juce::Component
 public:
     explicit RingModEditor(RingModModule& m) : module(m), display(m)
     {
+        for (auto* s : { &freqKnob, &depthKnob, &spreadKnob, &mixKnob })
+            s->setLookAndFeel(&knobLook);
+
         auto setupKnob = [this](juce::Slider& s, juce::Label& l,
                                 const juce::String& name,
                                 double lo, double hi, double val,
@@ -181,14 +223,11 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(juce::Colour(0xff0d1117));
+        g.fillAll(juce::Colour(0x3c5438d9));
 
         auto titleBar = getLocalBounds().removeFromTop(22);
         g.setColour(juce::Colour(0xff1a1a2a));
         g.fillRoundedRectangle(titleBar.toFloat(), 6.0f);
-        g.setColour(juce::Colour(0xffff66cc));
-        g.setFont(juce::Font(12.0f, juce::Font::bold));
-        g.drawText("RING MOD", titleBar, juce::Justification::centred);
     }
 
     void resized() override
@@ -221,7 +260,14 @@ public:
         layoutKnob(mixLabel,    mixKnob);
     }
 
+    ~RingModEditor() override
+    {
+        for (auto* s : { &freqKnob, &depthKnob, &spreadKnob, &mixKnob })
+            s->setLookAndFeel(nullptr);
+    }
+
 private:
+    KnobLookAndFeel knobLook;   // must outlive knobs
     RingModModule&  module;
     CarrierDisplay  display;
 
@@ -238,6 +284,12 @@ private:
 std::unique_ptr<juce::Component> RingModModule::createEditor()
 {
     return std::make_unique<RingModEditor>(*this);
+}
+
+juce::Image RingModModule::getLogo() const
+{
+    return juce::ImageCache::getFromMemory(
+        RingModAssets::faceplaterm_png, RingModAssets::faceplaterm_pngSize);
 }
 
 // ---- Persistence -----------------------------------------------------------

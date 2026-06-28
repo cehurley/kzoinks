@@ -224,9 +224,10 @@ public:
         display.setBounds(area.removeFromBottom(36));
         area.removeFromBottom(6);
 
-        // Two rows of knobs: 4 on top, 3 on bottom centred
+        // Two rows of knobs: 4 on top, 3 on bottom
         auto row1 = area.removeFromTop(80);
-        auto row2 = area;
+        area.removeFromTop(20);
+        auto row2 = area.removeFromTop(80);
 
         const int kw = row1.getWidth() / 4;
         auto layoutKnob = [](juce::Rectangle<int>& row, int w,
@@ -242,9 +243,7 @@ public:
         layoutKnob(row1, kw, relLabel,   relKnob);
         layoutKnob(row1, kw, resoLabel,  resoKnob);
 
-        // Centre 3 knobs in row2
-        const int kw2 = row2.getWidth() / 4;
-        row2.removeFromLeft(kw2 / 2);
+        const int kw2 = row2.getWidth() / 3;
         layoutKnob(row2, kw2, baseLabel,  baseKnob);
         layoutKnob(row2, kw2, rangeLabel, rangeKnob);
         layoutKnob(row2, kw2, mixLabel,   mixKnob);
