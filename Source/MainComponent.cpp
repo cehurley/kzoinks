@@ -107,78 +107,80 @@ MainComponent::MainComponent()
     addAndMakeVisible(octaveDownBtn);
     addAndMakeVisible(octaveUpBtn);
 
-    // Instantiate modules and open each one in its own floating window
-    modules = ModuleRegistry::getInstance().createAll(synthEngine.params);
-    for (int i = 0; i < (int)modules.size(); ++i)
+    // The core synth voice always exists, outside the swappable FX rack below.
+    voiceModule = ModuleRegistry::getInstance().createByName("Voice", synthEngine.params);
+    jassert(voiceModule != nullptr);
+    voiceWindow = std::make_unique<ModuleWindow>(voiceModule->getName(), voiceModule->createEditor(), 0);
     {
-        auto& m = modules[(size_t)i];
-        auto win = std::make_unique<ModuleWindow>(m->getName(), m->createEditor(), i);
-        auto logo = m->getLogo();
+        auto logo = voiceModule->getLogo();
         if (logo.isValid())
-            win->setTitleLogo(logo);
-        moduleWindows.push_back(std::move(win));
+            voiceWindow->setTitleLogo(logo);
     }
-
-    // Build the chain strip from the current module order
-    auto buildChainStrip = [this]
+    voiceWindow->addKeyListener(keyboard.asKeyListener());
+    voiceButton.onClick = [this]
     {
-        juce::StringArray names;
-        std::vector<ModuleWindow*> ptrs;
-        for (size_t i = 0; i < modules.size(); ++i)
-        {
-            names.add(modules[i]->getName());
-            ptrs.push_back(moduleWindows[i].get());
-        }
-        chainStrip.setModules(names, ptrs);
+        voiceWindow->setVisible(true);
+        voiceWindow->toFront(true);
     };
+    addAndMakeVisible(voiceButton);
 
-    buildChainStrip();
+    // Catalog of module types offered in each FX slot's dropdown — everything
+    // except "Voice", which isn't a swappable insert.
+    fxCatalog = ModuleRegistry::getInstance().getAvailableNames(synthEngine.params);
+    fxCatalog.removeString("Voice");
+    chainStrip.setCatalog(fxCatalog);
 
-    // Restore saved window positions and visibility (keyed by module name, survives reorder)
-    if (auto* props = getAppProperties())
-    {
-        for (size_t i = 0; i < moduleWindows.size(); ++i)
-        {
-            const auto key = modules[i]->getName();
-            auto state = props->getValue("moduleWindow_" + key);
-            if (state.isNotEmpty())
-                moduleWindows[i]->restoreWindowStateFromString(state);
+    // FX slots start empty; the auto-loaded setup (see Main.cpp) populates them.
+    refreshChainStripDisplay();
 
-            const bool visible = props->getBoolValue("moduleWindow_" + key + "_visible", true);
-            moduleWindows[i]->setVisible(visible);
-        }
-    }
-
-    // Forward key events from module windows to the keyboard so note-offs are
-    // received even when a module window has OS focus (prevents hanging notes).
-    for (auto& win : moduleWindows)
-        win->addKeyListener(keyboard.asKeyListener());
-
-    // Drag-to-reorder: keep modules and windows in sync with chain strip rows
+    // Drag-to-reorder: swap module+window between the two slots. The module
+    // pointer swap is locked because the audio thread iterates fxSlots every
+    // block; the window swap isn't (windows are message-thread-only).
     chainStrip.onReorder = [this](int from, int to)
     {
-        auto m = std::move(modules[(size_t)from]);
-        modules.erase(modules.begin() + from);
-        modules.insert(modules.begin() + to, std::move(m));
-
-        auto w = std::move(moduleWindows[(size_t)from]);
-        moduleWindows.erase(moduleWindows.begin() + from);
-        moduleWindows.insert(moduleWindows.begin() + to, std::move(w));
+        {
+            const juce::ScopedLock sl(fxSlotsLock);
+            std::swap(fxSlots[(size_t)from].module, fxSlots[(size_t)to].module);
+        }
+        std::swap(fxSlots[(size_t)from].window, fxSlots[(size_t)to].window);
+        refreshChainStripDisplay();
     };
 
-    // Power button: enable / disable a module in the signal chain
+    // Power button: enable / disable a slot's module (IModule's enabled flag is
+    // already an atomic, so no extra locking needed here).
     chainStrip.onToggle = [this](int index, bool enabled)
     {
-        modules[(size_t)index]->setEnabled(enabled);
+        if (auto& m = fxSlots[(size_t)index].module)
+            m->setEnabled(enabled);
     };
 
-    // Click a row name: show the window and bring it to front
+    // Click a filled slot's visibility dot: show the window and bring it to front.
     chainStrip.onShow = [this](int index)
     {
-        auto* win = moduleWindows[(size_t)index].get();
-        win->setVisible(true);
-        win->toFront(true);
+        if (auto* win = fxSlots[(size_t)index].window.get())
+        {
+            win->setVisible(true);
+            win->toFront(true);
+        }
     };
+
+    // Dropdown: replace (or clear) this slot's module type.
+    chainStrip.onTypeChange = [this](int index, const juce::String& newType)
+    {
+        assignSlot(index, newType);
+        refreshChainStripDisplay();
+    };
+
+    // Restore the voice window's saved position/visibility. Each FX slot
+    // window's geometry is restored lazily as that slot is assigned a module
+    // (see assignSlot) since slots start empty here.
+    if (auto* props = getAppProperties())
+    {
+        auto state = props->getValue("moduleWindow_voice");
+        if (state.isNotEmpty())
+            voiceWindow->restoreWindowStateFromString(state);
+        voiceWindow->setVisible(props->getBoolValue("moduleWindow_voice_visible", true));
+    }
 
     addAndMakeVisible(chainStrip);
     addAndMakeVisible(outputPanel);
@@ -197,22 +199,29 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
-    // Save each module window's position, size, and visibility before teardown
+    // Save the voice window and each filled FX slot's position/size/visibility
+    // before teardown, keyed by slot index (not module name — duplicates are
+    // allowed now, so name alone wouldn't be a stable key).
     if (auto* props = getAppProperties())
     {
-        for (size_t i = 0; i < moduleWindows.size(); ++i)
+        props->setValue("moduleWindow_voice", voiceWindow->getWindowStateAsString());
+        props->setValue("moduleWindow_voice_visible", voiceWindow->isVisible());
+
+        for (int i = 0; i < numFxSlots; ++i)
         {
-            const auto key = modules[i]->getName();
-            props->setValue("moduleWindow_" + key,
-                            moduleWindows[i]->getWindowStateAsString());
-            props->setValue("moduleWindow_" + key + "_visible",
-                            moduleWindows[i]->isVisible());
+            auto& slot = fxSlots[(size_t)i];
+            if (!slot.window) continue;
+            const auto key = slotWindowKey(i);
+            props->setValue(key, slot.window->getWindowStateAsString());
+            props->setValue(key + "_visible", slot.window->isVisible());
         }
         props->saveIfNeeded();
     }
 
-    for (auto& win : moduleWindows)
-        win->removeKeyListener(keyboard.asKeyListener());
+    voiceWindow->removeKeyListener(keyboard.asKeyListener());
+    for (auto& slot : fxSlots)
+        if (slot.window)
+            slot.window->removeKeyListener(keyboard.asKeyListener());
 
     juce::Desktop::getInstance().removeFocusChangeListener(this);
 
@@ -221,6 +230,79 @@ MainComponent::~MainComponent()
 
     setLookAndFeel(nullptr);
     shutdownAudio();
+}
+
+// ---- FX slot management -----------------------------------------------------
+
+void MainComponent::clearSlot(int index)
+{
+    auto& slot = fxSlots[(size_t)index];
+
+    // Detach the module pointer under the lock, but destroy it afterwards —
+    // keeps the locked section to a bare pointer swap, never object teardown.
+    std::unique_ptr<IModule> oldModule;
+    {
+        const juce::ScopedLock sl(fxSlotsLock);
+        oldModule = std::move(slot.module);
+    }
+
+    if (slot.window)
+    {
+        slot.window->removeKeyListener(keyboard.asKeyListener());
+        slot.window.reset();
+    }
+}
+
+void MainComponent::assignSlot(int index, const juce::String& typeName)
+{
+    clearSlot(index);
+    if (typeName.isEmpty())
+        return;
+
+    auto newModule = ModuleRegistry::getInstance().createByName(typeName, synthEngine.params);
+    if (!newModule) return;
+
+    // Built and prepared fully before it's ever visible to the audio thread.
+    newModule->prepareToPlay(lastSampleRate, lastBlockSize);
+
+    auto win = std::make_unique<ModuleWindow>(newModule->getName(), newModule->createEditor(), index);
+    auto logo = newModule->getLogo();
+    if (logo.isValid())
+        win->setTitleLogo(logo);
+    win->addKeyListener(keyboard.asKeyListener());
+
+    if (auto* props = getAppProperties())
+    {
+        const auto key   = slotWindowKey(index);
+        const auto state = props->getValue(key);
+        if (state.isNotEmpty())
+            win->restoreWindowStateFromString(state);
+        win->setVisible(props->getBoolValue(key + "_visible", true));
+    }
+
+    auto& slot = fxSlots[(size_t)index];
+    {
+        const juce::ScopedLock sl(fxSlotsLock);
+        slot.module = std::move(newModule);
+    }
+    slot.window = std::move(win);
+}
+
+void MainComponent::refreshChainStripDisplay()
+{
+    std::vector<ChainStrip::SlotData> data;
+    for (auto& slot : fxSlots)
+    {
+        ChainStrip::SlotData d;
+        if (slot.module)
+        {
+            d.typeName = slot.module->getName();
+            d.window   = slot.window.get();
+            d.enabled  = slot.module->isEnabled();
+        }
+        data.push_back(d);
+    }
+    chainStrip.setSlots(std::move(data));
 }
 
 void MainComponent::globalFocusChanged(juce::Component* focusedComponent)
@@ -236,8 +318,16 @@ void MainComponent::prepareToPlay(int samplesPerBlock, double sampleRate)
 {
     midiCollector.reset(sampleRate);
     synthEngine.setCurrentPlaybackSampleRate(sampleRate);
-    for (auto& m : modules)
-        m->prepareToPlay(sampleRate, samplesPerBlock);
+
+    lastSampleRate = sampleRate;
+    lastBlockSize  = samplesPerBlock;
+
+    voiceModule->prepareToPlay(sampleRate, samplesPerBlock);
+
+    const juce::ScopedLock sl(fxSlotsLock);
+    for (auto& slot : fxSlots)
+        if (slot.module)
+            slot.module->prepareToPlay(sampleRate, samplesPerBlock);
 }
 
 void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& info)
@@ -263,17 +353,25 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& info)
         remapped.addEvent(msg, meta.samplePosition);
     }
 
-    // Note generators (arp, step sequencer) get first crack at the MIDI buffer so
-    // notes they add/remove actually reach the engine's render this block.
-    for (auto& m : modules)
-        if (m->isEnabled())
-            m->processMidi(remapped, info.startSample, info.numSamples);
+    {
+        // Locked for the whole render pass — held only briefly and rarely
+        // contended (only when a slot is mid-reassignment on the message
+        // thread; see assignSlot/clearSlot).
+        const juce::ScopedLock sl(fxSlotsLock);
 
-    synthEngine.renderNextBlock(*info.buffer, remapped, info.startSample, info.numSamples);
+        // Note generators (arp, step sequencer) get first crack at the MIDI
+        // buffer so notes they add/remove actually reach the engine's render
+        // this block.
+        for (auto& slot : fxSlots)
+            if (slot.module && slot.module->isEnabled())
+                slot.module->processMidi(remapped, info.startSample, info.numSamples);
 
-    for (auto& m : modules)
-        if (m->isEnabled())
-            m->processBlock(*info.buffer, remapped, info.startSample, info.numSamples);
+        synthEngine.renderNextBlock(*info.buffer, remapped, info.startSample, info.numSamples);
+
+        for (auto& slot : fxSlots)
+            if (slot.module && slot.module->isEnabled())
+                slot.module->processBlock(*info.buffer, remapped, info.startSample, info.numSamples);
+    }
 
     info.buffer->applyGain(info.startSample, info.numSamples,
                            (float)volumeSlider.getValue());
@@ -328,6 +426,9 @@ void MainComponent::resized()
     skullBounds = knobArea; // skull fills remaining space below knob
     area.removeFromRight(8);
 
+    voiceButton.setBounds(area.removeFromTop(26));
+    area.removeFromTop(6);
+
     chainStrip.setBounds(area);
 }
 
@@ -371,14 +472,28 @@ void MainComponent::saveSetupAs(const juce::String& name)
     auto* props = getAppProperties();
     if (!props) return;
 
-    // Build XML for this setup
+    // Build XML for this setup: one <voice> (always present) plus one <slot>
+    // per filled FX slot, keyed by index so duplicate module types don't collide.
     juce::XmlElement root("setup");
-    for (size_t i = 0; i < modules.size(); ++i)
+
+    auto* voiceEl = root.createNewChildElement("voice");
+    voiceModule->saveState(*voiceEl);
+
+    for (int i = 0; i < numFxSlots; ++i)
     {
-        auto* entry = root.createNewChildElement("module");
-        entry->setAttribute("name",    modules[i]->getName());
-        entry->setAttribute("enabled", modules[i]->isEnabled());
-        modules[i]->saveState(*entry);
+        auto& slot = fxSlots[(size_t)i];
+        if (!slot.module) continue;
+
+        auto* entry = root.createNewChildElement("slot");
+        entry->setAttribute("index",      i);
+        // Named "moduleType" (not "type") because some modules' own saveState
+        // writes an attribute literally called "type" (e.g. DistortionModule's
+        // shape index) — using the same name here would get clobbered when
+        // slot.module->saveState(*entry) runs right below, silently corrupting
+        // the slot's module-type-on-load lookup.
+        entry->setAttribute("moduleType", slot.module->getName());
+        entry->setAttribute("enabled",    slot.module->isEnabled());
+        slot.module->saveState(*entry);
     }
 
     props->setValue("setup." + name, root.toString());
@@ -410,27 +525,38 @@ void MainComponent::loadSetup(const juce::String& name)
     auto* props = getAppProperties();
     if (!props) return;
 
-    auto xml = props->getValue("setup." + name);
-    if (xml.isEmpty()) return;
+    auto xmlStr = props->getValue("setup." + name);
+    if (xmlStr.isEmpty()) return;
 
-    auto root = juce::XmlDocument::parse(xml);
+    auto root = juce::XmlDocument::parse(xmlStr);
     if (!root) return;
 
-    // Match saved module entries to current modules by name
+    if (auto* voiceEl = root->getChildByName("voice"))
+    {
+        voiceModule->loadState(*voiceEl);
+        voiceWindow->setContentOwned(voiceModule->createEditor().release(), false);
+    }
+
+    for (int i = 0; i < numFxSlots; ++i)
+        clearSlot(i);
+
     for (auto* entry : root->getChildIterator())
     {
-        auto modName = entry->getStringAttribute("name");
-        for (size_t i = 0; i < modules.size(); ++i)
-        {
-            if (modules[i]->getName() == modName)
-            {
-                modules[i]->setEnabled(entry->getBoolAttribute("enabled", true));
-                modules[i]->loadState(*entry);
+        if (entry->getTagName() != "slot") continue;
 
-                // Rebuild the editor so controls reflect loaded values
-                moduleWindows[i]->setContentOwned(modules[i]->createEditor().release(), false);
-                break;
-            }
+        const int idx = entry->getIntAttribute("index", -1);
+        if (idx < 0 || idx >= numFxSlots) continue;
+
+        assignSlot(idx, entry->getStringAttribute("moduleType"));
+
+        auto& slot = fxSlots[(size_t)idx];
+        if (slot.module)
+        {
+            slot.module->setEnabled(entry->getBoolAttribute("enabled", true));
+            slot.module->loadState(*entry);
+
+            // Rebuild the editor so controls reflect loaded values
+            slot.window->setContentOwned(slot.module->createEditor().release(), false);
         }
     }
 
@@ -438,19 +564,7 @@ void MainComponent::loadSetup(const juce::String& name)
     props->setValue("setup.current", name);
     props->saveIfNeeded();
 
-    // Refresh the chain strip to reflect any enabled-state changes
-    {
-        juce::StringArray names;
-        std::vector<ModuleWindow*> ptrs;
-        std::vector<bool> enabled;
-        for (size_t i = 0; i < modules.size(); ++i)
-        {
-            names.add(modules[i]->getName());
-            ptrs.push_back(moduleWindows[i].get());
-            enabled.push_back(modules[i]->isEnabled());
-        }
-        chainStrip.setModules(names, ptrs, enabled);
-    }
+    refreshChainStripDisplay();
 
     if (menuModel)
         menuModel->menuItemsChanged();
@@ -464,7 +578,7 @@ void MainComponent::exportSetups()
     const auto names = getSetupNames();
     if (names.isEmpty()) return;
 
-    // Build JSON: { "version": 1, "current": "...", "setups": [...] }
+    // Build JSON: { "version": 2, "current": "...", "setups": [...] }
     auto setupsArray = juce::Array<juce::var>();
 
     for (const auto& name : names)
@@ -477,14 +591,21 @@ void MainComponent::exportSetups()
 
         for (auto* entry : root->getChildIterator())
         {
+            const bool isVoice = entry->getTagName() == "voice";
+            const bool isSlot  = entry->getTagName() == "slot";
+            if (!isVoice && !isSlot) continue;
+
             auto moduleObj = std::make_unique<juce::DynamicObject>();
-            moduleObj->setProperty("name",    entry->getStringAttribute("name"));
-            moduleObj->setProperty("enabled", entry->getBoolAttribute("enabled", true));
+            moduleObj->setProperty("name",    isVoice ? juce::String("Voice")
+                                                       : entry->getStringAttribute("type"));
+            moduleObj->setProperty("enabled", isVoice ? true : entry->getBoolAttribute("enabled", true));
+            if (isSlot)
+                moduleObj->setProperty("slotIndex", entry->getIntAttribute("index"));
 
             for (int i = 0; i < entry->getNumAttributes(); ++i)
             {
                 const auto attrName = entry->getAttributeName(i);
-                if (attrName == "name" || attrName == "enabled") continue;
+                if (attrName == "type" || attrName == "enabled" || attrName == "index") continue;
 
                 const auto val = entry->getAttributeValue(i);
                 // Store as number if parseable, otherwise string
@@ -504,7 +625,7 @@ void MainComponent::exportSetups()
     }
 
     auto root = std::make_unique<juce::DynamicObject>();
-    root->setProperty("version", 1);
+    root->setProperty("version", 2);
     root->setProperty("current", currentSetupName);
     root->setProperty("setups",  setupsArray);
 

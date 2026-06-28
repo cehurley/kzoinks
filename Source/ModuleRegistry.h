@@ -16,6 +16,15 @@ public:
     void registerFactory(Factory f);
     std::vector<std::unique_ptr<IModule>> createAll(SynthParameters& params) const;
 
+    // Names of every registered module type, for populating "pick a module" UI.
+    // Constructs a throwaway instance of each to read getName() — fine since this
+    // only runs at startup / on user action, never on the audio thread.
+    juce::StringArray getAvailableNames(SynthParameters& params) const;
+
+    // Builds a fresh instance of the type with this getName(), or nullptr if no
+    // registered type matches.
+    std::unique_ptr<IModule> createByName(const juce::String& name, SynthParameters& params) const;
+
 private:
     std::vector<Factory> factories;
 };

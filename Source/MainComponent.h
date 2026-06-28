@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <array>
 #include "SynthEngine.h"
 #include "IModule.h"
 #include "ChainStrip.h"
@@ -108,9 +109,41 @@ private:
     juce::Label      octaveLabel;
     int              keyboardOctave { 5 };
 
-    std::vector<std::unique_ptr<IModule>>       modules;
-    std::vector<std::unique_ptr<ModuleWindow>>  moduleWindows;
-    ChainStrip                                  chainStrip;
+    // The core synth voice ("Voice") is always present — not part of the
+    // swappable FX rack below. It has no processBlock/processMidi override, so
+    // it never needs the fxSlotsLock.
+    std::unique_ptr<IModule>      voiceModule;
+    std::unique_ptr<ModuleWindow> voiceWindow;
+    juce::TextButton              voiceButton { "VOICE" };
+
+    // Fixed-size FX insert rack (Logic-Pro-channel-strip style): each slot is
+    // independently empty or holds one module instance, freely reassignable and
+    // reorderable, duplicates allowed.
+    struct FxSlot
+    {
+        std::unique_ptr<IModule>      module;   // nullptr = empty
+        std::unique_ptr<ModuleWindow> window;   // nullptr = empty
+    };
+    static constexpr int numFxSlots = 10;
+    std::array<FxSlot, numFxSlots> fxSlots;
+
+    // Guards `module` (not `window`, which is message-thread-only) against the
+    // audio thread iterating fxSlots concurrently with a slot being reassigned.
+    // Held only for the brief pointer-swap, never across construction/destruction
+    // of the module itself — see assignSlot()/clearSlot().
+    juce::CriticalSection fxSlotsLock;
+
+    juce::StringArray fxCatalog;  // available module type names, excluding "Voice"
+
+    double lastSampleRate = 44100.0;
+    int    lastBlockSize  = 512;
+
+    ChainStrip chainStrip;
+
+    void assignSlot(int index, const juce::String& typeName);
+    void clearSlot (int index);
+    void refreshChainStripDisplay();
+    juce::String slotWindowKey(int index) const { return "moduleWindow_slot" + juce::String(index); }
 
     std::atomic<float> vuLeft  { 0.0f };
     std::atomic<float> vuRight { 0.0f };

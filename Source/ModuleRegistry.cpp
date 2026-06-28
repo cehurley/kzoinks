@@ -18,3 +18,22 @@ std::vector<std::unique_ptr<IModule>> ModuleRegistry::createAll(SynthParameters&
         result.push_back(f(params));
     return result;
 }
+
+juce::StringArray ModuleRegistry::getAvailableNames(SynthParameters& params) const
+{
+    juce::StringArray names;
+    for (auto& f : factories)
+        names.add(f(params)->getName());
+    return names;
+}
+
+std::unique_ptr<IModule> ModuleRegistry::createByName(const juce::String& name, SynthParameters& params) const
+{
+    for (auto& f : factories)
+    {
+        auto inst = f(params);
+        if (inst->getName() == name)
+            return inst;
+    }
+    return nullptr;
+}

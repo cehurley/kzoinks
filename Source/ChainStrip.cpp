@@ -1,15 +1,9 @@
 #include "ChainStrip.h"
 #include "ModuleWindow.h"
 
-void ChainStrip::setModules(juce::StringArray names, std::vector<ModuleWindow*> windows,
-                            std::vector<bool> enabledStates)
+void ChainStrip::setSlots(std::vector<SlotData> data)
 {
-    rows.clear();
-    for (int i = 0; i < names.size(); ++i)
-    {
-        bool en = (i < (int)enabledStates.size()) ? enabledStates[(size_t)i] : true;
-        rows.push_back({ names[i], windows[(size_t)i], en });
-    }
+    rows = std::move(data);
     repaint();
 }
 
@@ -26,7 +20,7 @@ void ChainStrip::paint(juce::Graphics& g)
 
     g.setColour(juce::Colour(0xff222244));
     g.setFont(juce::Font(10.0f, juce::Font::bold));
-    g.drawText("SIGNAL CHAIN", getLocalBounds().removeFromTop(16),
+    g.drawText("FX CHAIN", getLocalBounds().removeFromTop(16),
                juce::Justification::centred);
 
     const int w = getWidth();
@@ -41,12 +35,20 @@ void ChainStrip::paint(juce::Graphics& g)
 
         auto rowRect = juce::Rectangle<int>(4, y, w - 8, rowH);
 
-        const bool rowEnabled = rows[(size_t)i].enabled;
-        const float contentAlpha = rowEnabled ? 1.0f : 0.38f;
+        const auto& row        = rows[(size_t)i];
+        const bool  filled      = row.typeName.isNotEmpty();
+        const bool  rowEnabled  = row.enabled;
+        const float contentAlpha = filled ? (rowEnabled ? 1.0f : 0.38f) : 0.55f;
 
         g.setColour((dragged ? juce::Colour(0xff2e2e60)
-                              : juce::Colour(0xff1a1a38)).withAlpha(contentAlpha));
+                              : juce::Colour(0xff1a1a38)).withAlpha(filled ? contentAlpha : 0.4f));
         g.fillRoundedRectangle(rowRect.toFloat(), 4.0f);
+
+        if (!filled)
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.14f));
+            g.drawRoundedRectangle(rowRect.toFloat().reduced(1.0f), 4.0f, 1.0f);
+        }
 
         // Grip dots
         g.setColour(juce::Colours::white.withAlpha(0.18f * contentAlpha));
@@ -55,36 +57,46 @@ void ChainStrip::paint(juce::Graphics& g)
                           (float)(rowRect.getY() + 7 + d * 5),
                           3.0f, 3.0f);
 
-        // Power button — filled circle = on, outline only = off
-        const float btnCx = (float)(rowRect.getX() + 20);
-        const float btnCy = (float)rowRect.getCentreY();
-        const float btnR  = 5.0f;
-        if (rowEnabled)
+        if (filled)
         {
-            g.setColour(juce::Colour(0xff00cc66));
-            g.fillEllipse(btnCx - btnR, btnCy - btnR, btnR * 2, btnR * 2);
+            // Power button — filled circle = on, outline only = off
+            const float btnCx = (float)(rowRect.getX() + 34);
+            const float btnCy = (float)rowRect.getCentreY();
+            const float btnR  = 5.0f;
+            if (rowEnabled)
+            {
+                g.setColour(juce::Colour(0xff00cc66));
+                g.fillEllipse(btnCx - btnR, btnCy - btnR, btnR * 2, btnR * 2);
+            }
+            else
+            {
+                g.setColour(juce::Colour(0xff556677));
+                g.drawEllipse(btnCx - btnR, btnCy - btnR, btnR * 2, btnR * 2, 1.5f);
+            }
+
+            // Number + name + dropdown affordance
+            g.setColour(juce::Colours::white.withAlpha((dragged ? 1.0f : 0.82f) * contentAlpha));
+            g.setFont(12.5f);
+            g.drawText(juce::String(i + 1) + ".  " + row.typeName + "  \xe2\x96\xbe",
+                       rowRect.withLeft(rowRect.getX() + 48).withRight(rowRect.getRight() - 24),
+                       juce::Justification::centredLeft);
+
+            // Visibility dot
+            const bool visible = row.window && row.window->isVisible();
+            g.setColour((visible ? juce::Colour(0xff00aaff)
+                                  : juce::Colour(0xff333355)).withAlpha(contentAlpha));
+            g.fillEllipse((float)(rowRect.getRight() - 20),
+                          (float)(rowRect.getCentreY() - 4),
+                          8.0f, 8.0f);
         }
         else
         {
-            g.setColour(juce::Colour(0xff556677));
-            g.drawEllipse(btnCx - btnR, btnCy - btnR, btnR * 2, btnR * 2, 1.5f);
+            g.setColour(juce::Colours::white.withAlpha(0.32f));
+            g.setFont(12.0f);
+            g.drawText(juce::String(i + 1) + ".  + Add module  \xe2\x96\xbe",
+                       rowRect.withLeft(rowRect.getX() + 48),
+                       juce::Justification::centredLeft);
         }
-
-        // Number + name
-        g.setColour(juce::Colours::white.withAlpha((dragged ? 1.0f : 0.82f) * contentAlpha));
-        g.setFont(12.5f);
-        g.drawText(juce::String(i + 1) + ".  " + rows[(size_t)i].name,
-                   rowRect.withLeft(rowRect.getX() + 32).withRight(rowRect.getRight() - 20),
-                   juce::Justification::centredLeft);
-
-        // Visibility dot
-        const bool visible = rows[(size_t)i].window
-                             && rows[(size_t)i].window->isVisible();
-        g.setColour((visible ? juce::Colour(0xff00aaff)
-                              : juce::Colour(0xff333355)).withAlpha(contentAlpha));
-        g.fillEllipse((float)(rowRect.getRight() - 15),
-                      (float)(rowRect.getCentreY() - 4),
-                      8.0f, 8.0f);
     }
 
     // Insertion line
@@ -128,28 +140,44 @@ void ChainStrip::mouseDrag(const juce::MouseEvent& e)
 
 void ChainStrip::mouseUp(const juce::MouseEvent& e)
 {
-    juce::ignoreUnused(e);
     if (mouseDownIndex < 0) return;
 
     if (!isDragging)
     {
-        // Power button zone: small circle at a fixed x offset in the row
-        const int rowY   = rowTop(mouseDownIndex) + 18;
-        const int btnCx  = 4 + 20;          // matches paint layout
-        const int btnCy  = rowY + rowH / 2;
-        const bool hitPower = (std::abs(e.x - btnCx) <= 8 &&
-                               std::abs(e.y - btnCy) <= 8);
+        // Zones along the row: grip (drag only) | power | name/dropdown | visibility
+        const auto& row    = rows[(size_t)mouseDownIndex];
+        const bool  filled = row.typeName.isNotEmpty();
+        const int   w      = getWidth();
 
-        if (hitPower)
+        const int gripEnd  = 4 + 24;
+        const int powerEnd = gripEnd + 20;
+        const int visStart = w - 4 - 24;
+
+        if (e.x < gripEnd)
         {
-            rows[(size_t)mouseDownIndex].enabled = !rows[(size_t)mouseDownIndex].enabled;
-            if (onToggle) onToggle(mouseDownIndex, rows[(size_t)mouseDownIndex].enabled);
-            repaint();
+            // grip zone — drag only, no click action
         }
-        else
+        else if (!filled)
+        {
+            // empty slot — any non-grip click opens the picker
+            showTypeMenu(mouseDownIndex);
+        }
+        else if (e.x < powerEnd)
+        {
+            const bool newEnabled = !row.enabled;
+            rows[(size_t)mouseDownIndex].enabled = newEnabled;
+            if (onToggle) onToggle(mouseDownIndex, newEnabled);
+        }
+        else if (e.x >= visStart)
         {
             if (onShow) onShow(mouseDownIndex);
         }
+        else
+        {
+            showTypeMenu(mouseDownIndex);
+        }
+
+        repaint();
     }
     else if (insertIndex >= 0)
     {
@@ -159,12 +187,13 @@ void ChainStrip::mouseUp(const juce::MouseEvent& e)
 
         if (finalIndex != mouseDownIndex)
         {
+            // onReorder (MainComponent) swaps the two fxSlots entries and then
+            // calls refreshChainStripDisplay(), which calls setSlots() and
+            // replaces `rows` wholesale with the true post-swap order — don't
+            // also mutate `rows` here, that double-applies a (different,
+            // shift-based) reorder on top of the swap and desyncs the display
+            // from what actually gets saved.
             if (onReorder) onReorder(mouseDownIndex, finalIndex);
-
-            // Keep local rows in sync
-            auto row = rows[(size_t)mouseDownIndex];
-            rows.erase(rows.begin() + mouseDownIndex);
-            rows.insert(rows.begin() + finalIndex, row);
         }
     }
 
@@ -172,6 +201,25 @@ void ChainStrip::mouseUp(const juce::MouseEvent& e)
     insertIndex    = -1;
     isDragging     = false;
     repaint();
+}
+
+void ChainStrip::showTypeMenu(int index)
+{
+    juce::PopupMenu menu;
+    menu.addItem(1, "(Empty)");
+    for (int i = 0; i < catalog.size(); ++i)
+        menu.addItem(100 + i, catalog[i]);
+
+    auto rowLocal  = juce::Rectangle<int>(4, rowTop(index) + 18, getWidth() - 8, rowH);
+    auto rowScreen = localAreaToGlobal(rowLocal);
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(rowScreen),
+        [this, index](int result)
+        {
+            if (result == 0) return; // dismissed without a choice
+            const juce::String newType = (result == 1) ? juce::String() : catalog[result - 100];
+            if (onTypeChange) onTypeChange(index, newType);
+        });
 }
 
 int ChainStrip::rowAt(int y) const
