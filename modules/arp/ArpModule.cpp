@@ -62,9 +62,8 @@ void ArpModule::rebuildSequence()
     seqLength.store((int)sequence.size());
 }
 
-void ArpModule::processBlock(juce::AudioBuffer<float>&,
-                              juce::MidiBuffer& midi,
-                              int startSample, int numSamples)
+void ArpModule::processMidi(juce::MidiBuffer& midi,
+                            int startSample, int numSamples)
 {
     const double bpmVal        = bpm   .load();
     const int    subdivVal     = subdiv.load();

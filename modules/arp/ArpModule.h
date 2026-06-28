@@ -12,8 +12,7 @@ public:
     juce::String getName() const override { return "Arp"; }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
-    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&,
-                      int startSample, int numSamples) override;
+    void processMidi(juce::MidiBuffer&, int startSample, int numSamples) override;
 
     std::unique_ptr<juce::Component> createEditor() override;
     void saveState(juce::XmlElement&)        const override;

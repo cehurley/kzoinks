@@ -22,7 +22,16 @@ public:
     // Called before audio starts — store sample rate / reset state.
     virtual void prepareToPlay(double /*sampleRate*/, int /*samplesPerBlock*/) {}
 
-    // Called on the audio thread each block. Default is pass-through.
+    // Called on the audio thread each block, BEFORE the synth engine renders.
+    // Note generators (arpeggiators, step sequencers) override this to add/remove
+    // note-on/off events so the engine actually hears them this block. Default is
+    // pass-through.
+    virtual void processMidi(juce::MidiBuffer& /*midi*/,
+                             int /*startSample*/, int /*numSamples*/) {}
+
+    // Called on the audio thread each block, AFTER the synth engine renders.
+    // Audio effects override this to read/write the rendered buffer. Default is
+    // pass-through.
     virtual void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&,
                               int /*startSample*/, int /*numSamples*/) {}
 

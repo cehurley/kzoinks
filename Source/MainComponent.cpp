@@ -263,6 +263,12 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& info)
         remapped.addEvent(msg, meta.samplePosition);
     }
 
+    // Note generators (arp, step sequencer) get first crack at the MIDI buffer so
+    // notes they add/remove actually reach the engine's render this block.
+    for (auto& m : modules)
+        if (m->isEnabled())
+            m->processMidi(remapped, info.startSample, info.numSamples);
+
     synthEngine.renderNextBlock(*info.buffer, remapped, info.startSample, info.numSamples);
 
     for (auto& m : modules)
