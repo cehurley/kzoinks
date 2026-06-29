@@ -16,6 +16,7 @@ public:
                       int startSample, int numSamples) override;
 
     std::unique_ptr<juce::Component> createEditor() override;
+    juce::Image getLogo() const override;
     void saveState(juce::XmlElement&)        const override;
     void loadState(const juce::XmlElement&)        override;
 

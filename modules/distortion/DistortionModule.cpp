@@ -239,9 +239,6 @@ public:
         auto titleBar = getLocalBounds().removeFromTop(22);
         g.setColour(juce::Colour(0xff1a1a2e));
         g.fillRoundedRectangle(titleBar.toFloat(), 6.0f);
-        g.setColour(juce::Colour(0xffff8844));
-        g.setFont(juce::Font(12.0f, juce::Font::bold));
-        g.drawText("DISTORTION", titleBar, juce::Justification::centred);
     }
 
     void resized() override
@@ -296,6 +293,12 @@ private:
 std::unique_ptr<juce::Component> DistortionModule::createEditor()
 {
     return std::make_unique<DistortionEditor>(*this);
+}
+
+juce::Image DistortionModule::getLogo() const
+{
+    return juce::ImageCache::getFromMemory(
+        DistortionAssets::distortionplate_png, DistortionAssets::distortionplate_pngSize);
 }
 
 void DistortionModule::saveState(juce::XmlElement& xml) const
